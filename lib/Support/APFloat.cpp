@@ -1739,43 +1739,30 @@ IEEEFloat::opStatus IEEEFloat::remainder(const IEEEFloat &rhs) {
   return fs;
 }
 
-/* Normalized llvm frem (C fmod).
-   This is not currently correct in all cases.  */
+/* Normalized llvm frem (C fmod).  */
 IEEEFloat::opStatus IEEEFloat::mod(const IEEEFloat &rhs) {
   opStatus fs;
   fs = modSpecials(rhs);
 
   if (isFiniteNonZero() && rhs.isFiniteNonZero()) {
-    IEEEFloat V = *this;
-    unsigned int origSign = sign;
+    while (true) {
+      IEEEFloat V = *this;
 
-    fs = V.divide(rhs, rmNearestTiesToEven);
-    if (fs == opDivByZero)
-      return fs;
+      fs = V.divide(rhs, rmTowardZero);
+      if (fs == opDivByZero)
+        return fs;
+      V.roundToIntegral(rmTowardZero);
+      if (V.isZero())
+        break;
 
-    int parts = partCount();
-    integerPart *x = new integerPart[parts];
-    bool ignored;
-    fs = V.convertToInteger(x, parts * integerPartWidth, true,
-                            rmTowardZero, &ignored);
-    if (fs==opInvalidOp) {
-      delete[] x;
-      return fs;
+      /* *this = *this - V*rhs     */
+      V.sign = !V.sign;
+      lostFraction lost_fraction;
+      lost_fraction = V.multiplySignificand(rhs, this);
+      fs = normalize(rmTowardZero, lost_fraction);
+      assert(fs==opOK);   // should always be exact
+      *this = V;
     }
-
-    fs = V.convertFromZeroExtendedInteger(x, parts * integerPartWidth, true,
-                                          rmNearestTiesToEven);
-    assert(fs==opOK);   // should always work
-
-    fs = V.multiply(rhs, rmNearestTiesToEven);
-    assert(fs==opOK || fs==opInexact);   // should not overflow or underflow
-
-    fs = subtract(V, rmNearestTiesToEven);
-    assert(fs==opOK || fs==opInexact);   // likewise
-
-    if (isZero())
-      sign = origSign;    // IEEE754 requires this
-    delete[] x;
   }
   return fs;
 }
